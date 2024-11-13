@@ -3,7 +3,7 @@ import streamlit as st
 import pandas as pd
 import matplotlib.pyplot as plt
 import plotly.express as px
-import psycopg2
+from sqlalchemy import create_engine
 from dotenv import load_dotenv
 import os
 
@@ -21,56 +21,62 @@ def create_connection():
         DATABASE_URL = os.getenv('DATABASE_URL')
         
         if DATABASE_URL:
-            # Handle SSL requirement for Render
-            conn = psycopg2.connect(DATABASE_URL, sslmode='require')
+            # Create SQLAlchemy engine
+            engine = create_engine(DATABASE_URL, connect_args={'sslmode': 'require'})
         else:
-            # Fallback to individual credentials if DATABASE_URL is not set
-            conn = psycopg2.connect(
-                dbname=os.getenv('DB_NAME'),
-                user=os.getenv('DB_USER'),
-                password=os.getenv('DB_PASSWORD'),
-                host=os.getenv('DB_HOST'),
-                port=os.getenv('DB_PORT')
-            )
-        return conn
+            # Fallback to individual credentials
+            db_params = {
+                'dbname': os.getenv('DB_NAME'),
+                'user': os.getenv('DB_USER'),
+                'password': os.getenv('DB_PASSWORD'),
+                'host': os.getenv('DB_HOST'),
+                'port': os.getenv('DB_PORT')
+            }
+            engine = create_engine(f"postgresql://{db_params['user']}:{db_params['password']}@{db_params['host']}:{db_params['port']}/{db_params['dbname']}")
+        return engine
     except Exception as e:
-        st.error(f"Error connecting to the database: {e}")
+        st.error(f"Error creating database connection: {e}")
         return None
 
-# Load data from the database
 def load_data(query):
-    conn = create_connection()
-    if conn:
+    engine = create_connection()
+    if engine:
         try:
-            data = pd.read_sql(query, conn)
-            # Create date column right after loading the data
-            data['date'] = pd.to_datetime(data[['year', 'month', 'day']])
-            print(data.columns)  # Print column names for debugging
-            print(data.head())  # Print the first few rows of the DataFrame
+            # Add debugging information
+            st.write("Executing query...")
+            data = pd.read_sql(query, engine)
+            st.write("Query executed. Columns in dataset:", data.columns.tolist())
+            st.write("Number of rows:", len(data))
+            
             if data.empty:
-                print("No data returned from the query.")  # Debugging output
+                st.error("No data returned from the query")
+                return pd.DataFrame()
+            
+            # Create date column
+            data['date'] = pd.to_datetime(data[['year', 'month', 'day']])
             return data
+            
         except Exception as e:
-            st.error(f"Error reading from the database: {e}")
-            return pd.DataFrame()  # Return empty DataFrame on error
+            st.error(f"Error reading from database: {e}")
+            return pd.DataFrame()
         finally:
-            conn.close()
-    return pd.DataFrame()  # Return empty DataFrame if connection
+            engine.dispose()
+    return pd.DataFrame()
 
-
+# Modify your query to ensure column names match
 query = """
 SELECT 
     pd.description AS product_name,
     pd.stockcode,
-    sls.quantity,
-    sls.unitprice,
-    sls.totalprice,
+    sls.quantity::integer as quantity,
+    sls.unitprice::float as unitprice,
+    sls.totalprice::float as totalprice,
     c.country,
     t.year,
     t.month,
     t.day,
-    COUNT(DISTINCT sls.invoiceno) as total_orders,
-    COUNT(DISTINCT sls.customerid) as unique_customers
+    COUNT(DISTINCT sls.invoiceno)::integer as total_orders,
+    COUNT(DISTINCT sls.customerid)::integer as unique_customers
 FROM 
     sales sls 
 JOIN 
