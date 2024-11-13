@@ -80,10 +80,10 @@ data = load_data(query)
 with st.sidebar:
     selected = option_menu("Menu", 
                            ["Home", "Dashboard", "Sales", "Insights", 
-                            "Product Analytics", "Customer Analysis"
+                            "Customer Analysis"
                             ], 
                            icons=['house', 'speedometer', 'bar-chart', 
-                                  'lightbulb', 'box', 'people', 
+                                  'lightbulb', 'people', 
                                   ],
                            menu_icon="cast", 
                            default_index=0)
@@ -204,50 +204,28 @@ elif selected == "Dashboard":
     with col_date2:
         end_filter = st.date_input("End Date", end_date, min_value=start_date, max_value=end_date)
 
-    # Filter data based on date range
+    # Filter data
     mask = (data['date'] >= pd.to_datetime(start_filter)) & (data['date'] <= pd.to_datetime(end_filter))
     filtered_data = data[mask]
 
-    # Create columns for KPIs with delta values (comparing to previous period)
-    col1, col2, col3, col4 = st.columns(4)
-    
-    # Calculate KPIs and their deltas
-    total_sales = filtered_data['totalprice'].sum()
-    total_orders = filtered_data['total_orders'].sum()
-    avg_order_value = total_sales / total_orders if total_orders > 0 else 0
-    unique_customers = filtered_data['unique_customers'].sum()
-    
-    # Calculate previous period metrics for delta
+    # Calculate previous period metrics for comparison
     days_selected = (end_filter - start_filter).days
     previous_start = start_filter - pd.Timedelta(days=days_selected)
     previous_mask = (data['date'] >= pd.to_datetime(previous_start)) & (data['date'] < pd.to_datetime(start_filter))
     previous_data = data[previous_mask]
-    
-    prev_sales = previous_data['totalprice'].sum()
-    prev_orders = previous_data['total_orders'].sum()
-    prev_avg_order = prev_sales / prev_orders if prev_orders > 0 else 0
-    prev_customers = previous_data['unique_customers'].sum()
-    
-    # Add custom CSS for metrics
-    st.markdown("""
-        <style>
-        div[data-testid="metric-container"] {
-            background-color: rgba(28, 131, 225, 0.1);
-            border: 1px solid rgba(28, 131, 225, 0.1);
-            padding: 5% 5% 5% 10%;
-            border-radius: 5px;
-            color: rgb(30, 103, 119);
-            overflow-wrap: break-word;
-        }
 
-        /* breakline for metric text         */
-        div[data-testid="metric-container"] > label[data-testid="stMetricLabel"] > div {
-            overflow-wrap: break-word;
-            white-space: break-spaces;
-            color: rgb(49, 51, 63);
-        }
-        </style>
-        """, unsafe_allow_html=True)
+    # KPIs with Period Comparison
+    col1, col2, col3, col4 = st.columns(4)
+    
+    # Calculate current and previous metrics
+    total_sales = filtered_data['totalprice'].sum()
+    prev_sales = previous_data['totalprice'].sum()
+    total_orders = filtered_data['total_orders'].sum()
+    prev_orders = previous_data['total_orders'].sum()
+    avg_order_value = total_sales / total_orders if total_orders > 0 else 0
+    prev_avg_order = prev_sales / prev_orders if prev_orders > 0 else 0
+    unique_customers = filtered_data['unique_customers'].sum()
+    prev_customers = previous_data['unique_customers'].sum()
 
     # Display KPIs with deltas
     with col1:
@@ -267,127 +245,40 @@ elif selected == "Dashboard":
                  f"{unique_customers:,}", 
                  delta=f"{((unique_customers - prev_customers)/prev_customers)*100:.1f}%" if prev_customers > 0 else "N/A")
 
-    # Add tabs for different chart views
-    tab1, tab2 = st.tabs(["📊 Sales Analysis", "🌍 Geographic Analysis"])
+    # Key Trends
+    col_left, col_right = st.columns(2)
     
-    with tab1:
-        # Chart Type Selector for Sales Trend
-        chart_type = st.radio("Select Chart Type", ["Line", "Bar", "Area"], horizontal=True)
-        
-        # Time Grouping Selector
-        time_grouping = st.selectbox("Time Grouping", ["Daily", "Weekly", "Monthly"])
-        
-        # Prepare time series data based on selection
-        if time_grouping == "Daily":
-            sales_trend = filtered_data.groupby('date')['totalprice'].sum().reset_index()
-        elif time_grouping == "Weekly":
-            sales_trend = filtered_data.groupby(pd.Grouper(key='date', freq='W'))['totalprice'].sum().reset_index()
-        else:
-            sales_trend = filtered_data.groupby(pd.Grouper(key='date', freq='M'))['totalprice'].sum().reset_index()
-        
-        # Create chart based on selection
-        if chart_type == "Line":
-            trend_fig = px.line(sales_trend, x='date', y='totalprice',
-                              title=f'{time_grouping} Sales Trend',
-                              labels={'totalprice': 'Revenue', 'date': 'Date'})
-        elif chart_type == "Bar":
-            trend_fig = px.bar(sales_trend, x='date', y='totalprice',
-                             title=f'{time_grouping} Sales Trend',
-                             labels={'totalprice': 'Revenue', 'date': 'Date'})
-        else:  # Area
-            trend_fig = px.area(sales_trend, x='date', y='totalprice',
-                              title=f'{time_grouping} Sales Trend',
-                              labels={'totalprice': 'Revenue', 'date': 'Date'})
-        
+    with col_left:
+        # Revenue Trend
+        sales_trend = filtered_data.groupby(pd.Grouper(key='date', freq='M'))['totalprice'].sum().reset_index()
+        trend_fig = px.line(sales_trend, 
+                          x='date', 
+                          y='totalprice',
+                          title='Monthly Revenue Trend',
+                          labels={'totalprice': 'Revenue', 'date': 'Month'})
         st.plotly_chart(trend_fig, use_container_width=True)
-        
-        # Top Products Analysis
-        col_prod1, col_prod2 = st.columns(2)
-        
-        with col_prod1:
-            top_n = st.slider('Number of Top Products', 5, 20, 10)
-            top_products = filtered_data.groupby('product_name')['totalprice'].sum().nlargest(top_n).reset_index()
-            product_fig = px.bar(top_products, 
-                               x='product_name', 
-                               y='totalprice',
-                               title=f'Top {top_n} Products by Revenue',
-                               labels={'product_name': 'Product', 'totalprice': 'Revenue'})
-            st.plotly_chart(product_fig, use_container_width=True)
-            
-        with col_prod2:
-            # Product Performance Metrics
-            st.markdown("### Product Performance Metrics")
-            product_metrics = filtered_data.groupby('product_name').agg({
-                'totalprice': 'sum',
-                'quantity': 'sum',
-                'total_orders': 'sum'
-            }).reset_index()
-            product_metrics['avg_price_per_unit'] = product_metrics['totalprice'] / product_metrics['quantity']
-            st.dataframe(
-                product_metrics.sort_values('totalprice', ascending=False).head(top_n),
-                use_container_width=True
-            )
 
-    with tab2:
-        col_geo1, col_geo2 = st.columns(2)
-        
-        with col_geo1:
-            # Sales by Country (Map)
-            sales_by_country = filtered_data.groupby('country')['totalprice'].sum().reset_index()
-            country_fig = px.choropleth(sales_by_country, 
-                                      locations='country',
-                                      locationmode='country names',
-                                      color='totalprice',
-                                      title='Sales Distribution by Country',
-                                      color_continuous_scale='Viridis')
-            st.plotly_chart(country_fig, use_container_width=True)
-            
-        with col_geo2:
-            # Average Order Value by Country
-            aov_by_country = filtered_data.groupby('country').agg({
-                'totalprice': 'sum',
-                'total_orders': 'sum'
-            }).reset_index()
-            aov_by_country['avg_order_value'] = aov_by_country['totalprice'] / aov_by_country['total_orders']
-            
-            # Add a metric selector
-            metric_option = st.selectbox(
-                "Select Metric",
-                ["Average Order Value", "Total Revenue", "Total Orders"]
-            )
-            
-            if metric_option == "Average Order Value":
-                y_col = 'avg_order_value'
-                title = 'Average Order Value by Country'
-            elif metric_option == "Total Revenue":
-                y_col = 'totalprice'
-                title = 'Total Revenue by Country'
-            else:
-                y_col = 'total_orders'
-                title = 'Total Orders by Country'
-                
-            country_metric_fig = px.bar(
-                aov_by_country.sort_values(y_col, ascending=True).tail(10),
-                x=y_col,
-                y='country',
-                orientation='h',
-                title=title
-            )
-            st.plotly_chart(country_metric_fig, use_container_width=True)
+    with col_right:
+        # Top 5 Products
+        top_products = filtered_data.groupby('product_name')['totalprice'].sum().nlargest(5).reset_index()
+        products_fig = px.bar(top_products,
+                            x='product_name',
+                            y='totalprice',
+                            title='Top 5 Products',
+                            labels={'totalprice': 'Revenue', 'product_name': 'Product'})
+        st.plotly_chart(products_fig, use_container_width=True)
 
-    # Additional Insights
+    # Key Insights
     st.markdown("### Key Insights")
-    
-    # Create three columns for different insights
     insight_col1, insight_col2, insight_col3 = st.columns(3)
     
     with insight_col1:
-        st.markdown("**Top Performing Country**")
-        top_country = sales_by_country.loc[sales_by_country['totalprice'].idxmax()]
-        st.info(f"🏆 {top_country['country']}\n\n${top_country['totalprice']:,.2f} in sales")
+        st.markdown("**Top Market**")
+        top_country = filtered_data.groupby('country')['totalprice'].sum().nlargest(1)
+        st.info(f"🏆 {top_country.index[0]}\n\n${top_country.values[0]:,.2f} in sales")
         
     with insight_col2:
-        st.markdown("**Best Selling Product**")
+        st.markdown("**Best Seller**")
         top_product = top_products.iloc[0]
         st.info(f"🌟 {top_product['product_name']}\n\n${top_product['totalprice']:,.2f} in revenue")
         
@@ -460,23 +351,49 @@ elif selected == "Sales":
         
         st.plotly_chart(trend_fig, use_container_width=True)
 
-        # Monthly Distribution
-        monthly_dist = filtered_data.groupby('month')['totalprice'].sum().reset_index()
+        # Monthly Distribution with Year-over-Year Comparison
+        monthly_dist = filtered_data.groupby(['year', 'month'])['totalprice'].sum().reset_index()
         month_names = {
             1: 'Jan', 2: 'Feb', 3: 'Mar', 4: 'Apr', 5: 'May', 6: 'Jun',
             7: 'Jul', 8: 'Aug', 9: 'Sep', 10: 'Oct', 11: 'Nov', 12: 'Dec'
         }
         monthly_dist['month_name'] = monthly_dist['month'].map(month_names)
-        monthly_dist = monthly_dist.sort_values('month')
+        monthly_dist['year_month'] = monthly_dist['year'].astype(str) + '-' + monthly_dist['month_name']
         
-        month_sales_fig = px.line(
-            monthly_dist,
-            x='month_name',
-            y='totalprice',
-            title='Sales Distribution by Month',
-            labels={'totalprice': 'Revenue', 'month_name': 'Month'},
-            markers=True
-        )
+        # Option to compare years
+        show_yoy = st.checkbox("Show Year-over-Year Comparison")
+        
+        if show_yoy:
+            month_sales_fig = px.line(
+                monthly_dist,
+                x='month_name',
+                y='totalprice',
+                color='year',
+                title='Monthly Sales Distribution (Year-over-Year)',
+                labels={'totalprice': 'Revenue', 'month_name': 'Month', 'year': 'Year'},
+                markers=True
+            )
+            # Customize layout for better readability
+            month_sales_fig.update_layout(
+                xaxis_title="Month",
+                yaxis_title="Revenue ($)",
+                legend_title="Year"
+            )
+        else:
+            # Original monthly view (aggregated across years)
+            monthly_agg = filtered_data.groupby('month')['totalprice'].sum().reset_index()
+            monthly_agg['month_name'] = monthly_agg['month'].map(month_names)
+            monthly_agg = monthly_agg.sort_values('month')
+            
+            month_sales_fig = px.line(
+                monthly_agg,
+                x='month_name',
+                y='totalprice',
+                title='Monthly Sales Distribution (All Years)',
+                labels={'totalprice': 'Revenue', 'month_name': 'Month'},
+                markers=True
+            )
+            
         st.plotly_chart(month_sales_fig, use_container_width=True)
 
     with sales_tab2:
@@ -627,11 +544,6 @@ elif selected == "Sales":
 #     st.title("📑Insights")
 #     st.markdown("---")
 #     st.write("Explore insights into customer behavior and product performance.")
-
-# elif selected == "Product Analytics":
-#     st.title("👘Product Analytics")
-#     st.markdown("---")
-#     st.write("Analyze product performance, including bestsellers and inventory turnover.")
 
 # elif selected == "Customer Analysis":
 #     st.title("🧑‍🦰Customer Analysis")
