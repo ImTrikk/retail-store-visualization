@@ -17,13 +17,21 @@ st.markdown('<style>div.block-container{padding-top:1rem;}</style>', unsafe_allo
 
 def create_connection():
     try:
-        conn = psycopg2.connect(
-            dbname=os.getenv('DB_NAME'),
-            user=os.getenv('DB_USER'),
-            password=os.getenv('DB_PASSWORD'),
-            host=os.getenv('DB_HOST'),
-            port=os.getenv('DB_PORT')
-        )
+        # For Render, use the external DATABASE_URL
+        DATABASE_URL = os.getenv('DATABASE_URL')
+        
+        if DATABASE_URL:
+            # Handle SSL requirement for Render
+            conn = psycopg2.connect(DATABASE_URL, sslmode='require')
+        else:
+            # Fallback to individual credentials if DATABASE_URL is not set
+            conn = psycopg2.connect(
+                dbname=os.getenv('DB_NAME'),
+                user=os.getenv('DB_USER'),
+                password=os.getenv('DB_PASSWORD'),
+                host=os.getenv('DB_HOST'),
+                port=os.getenv('DB_PORT')
+            )
         return conn
     except Exception as e:
         st.error(f"Error connecting to the database: {e}")
