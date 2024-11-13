@@ -4,6 +4,11 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import plotly.express as px
 import psycopg2
+from dotenv import load_dotenv
+import os
+
+# Load environment variables
+load_dotenv()
 
 # Set Page Configuration
 st.set_page_config(page_title="Retail Store Visualization", page_icon="🏪", layout="wide")
@@ -13,11 +18,11 @@ st.markdown('<style>div.block-container{padding-top:1rem;}</style>', unsafe_allo
 def create_connection():
     try:
         conn = psycopg2.connect(
-            dbname="OnlineRetaildb",
-            user="postgres",
-            password="admin",
-            host="localhost",
-            port="5432"
+            dbname=os.getenv('DB_NAME'),
+            user=os.getenv('DB_USER'),
+            password=os.getenv('DB_PASSWORD'),
+            host=os.getenv('DB_HOST'),
+            port=os.getenv('DB_PORT')
         )
         return conn
     except Exception as e:
