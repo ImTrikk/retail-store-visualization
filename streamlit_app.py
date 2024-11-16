@@ -3,10 +3,11 @@ import streamlit as st # type: ignore
 import pandas as pd # type: ignore
 import matplotlib.pyplot as plt # type: ignore
 import plotly.express as px # type: ignore
-from sqlalchemy import create_engine # type: ignore
+from sqlalchemy import create_engine, text # type: ignore
 from dotenv import load_dotenv # type: ignore
 import os
 import json
+import urllib.parse
 
 # Load environment variables
 load_dotenv()
@@ -18,22 +19,25 @@ st.markdown('<style>div.block-container{padding-top:1rem;}</style>', unsafe_allo
 
 def create_connection():
     try:    
-        # For Render, use the external DATABASE_URL
-        DATABASE_URL = os.getenv('DATABASE_URL')
+        # Get Supabase credentials from environment variables
+        db_host = os.getenv('DB_HOST')
+        db_port = os.getenv('DB_PORT', '5432')
+        db_name = os.getenv('DB_NAME', 'postgres')
+        db_user = os.getenv('DB_USER', 'postgres')
+        db_pass = os.getenv('DB_PASSWORD')
+
+        # Create connection URL with proper encoding and SSL
+        DATABASE_URL = f"postgresql://{db_user}:{urllib.parse.quote_plus(db_pass)}@{db_host}:{db_port}/{db_name}"
         
-        if DATABASE_URL:
-            # Create SQLAlchemy engine
-            engine = create_engine(DATABASE_URL, connect_args={'sslmode': 'require'})
-        else:
-            # Fallback to individual credentials
-            db_params = {
-                'dbname': os.getenv('DB_NAME'),
-                'user': os.getenv('DB_USER'),
-                'password': os.getenv('DB_PASSWORD'),
-                'host': os.getenv('DB_HOST'),
-                'port': os.getenv('DB_PORT')
+        # Create SQLAlchemy engine with SSL requirement
+        engine = create_engine(
+            DATABASE_URL,
+            connect_args={
+                'sslmode': 'require',
+                'client_encoding': 'utf8'
             }
-            engine = create_engine(f"postgresql://{db_params['user']}:{db_params['password']}@{db_params['host']}:{db_params['port']}/{db_params['dbname']}")
+        )
+        
         return engine
     except Exception as e:
         st.error(f"Error creating database connection: {e}")
@@ -44,10 +48,19 @@ def load_data(query):
     engine = create_connection()
     if engine:
         try:
-            # Remove debug messages
-            data = pd.read_sql(query, engine)
-            data['date'] = pd.to_datetime(data[['year', 'month', 'day']])
-            return data
+            with engine.connect() as connection:
+                # Execute the main query
+                data = pd.read_sql_query(text(query), connection)
+                
+                # Create date column after loading the data
+                data['date'] = pd.to_datetime(
+                    dict(
+                        year=data['year'],
+                        month=data['month'],
+                        day=data['day']
+                    )
+                )
+                return data
         except Exception as e:
             st.error(f"Error reading from database: {e}")
             return pd.DataFrame()
@@ -55,35 +68,52 @@ def load_data(query):
             engine.dispose()
     return pd.DataFrame()
 
-# Modify your query to ensure column names match
+# Modified query with better performance
 query = """
+WITH base_data AS (
+    SELECT 
+        pd.description AS product_name,
+        pd.stockcode,
+        sls.quantity::integer as quantity,
+        sls.unitprice::float as unitprice,
+        sls.totalprice::float as totalprice,
+        c.country,
+        t.year,
+        t.month,
+        t.day,
+        sls.invoiceno,
+        sls.customerid
+    FROM 
+        sales sls 
+    JOIN 
+        product pd ON sls.stockcode = pd.stockcode 
+    JOIN 
+        customer c ON c.customerid = sls.customerid 
+    JOIN 
+        time t ON t.timeid = sls.timeid
+)
 SELECT 
-    pd.description AS product_name,
-    pd.stockcode,
-    sls.quantity::integer as quantity,
-    sls.unitprice::float as unitprice,
-    sls.totalprice::float as totalprice,
-    c.country,
-    t.year,
-    t.month,
-    t.day,
-    COUNT(DISTINCT sls.invoiceno)::integer as total_orders,
-    COUNT(DISTINCT sls.customerid)::integer as unique_customers
+    product_name,
+    stockcode,
+    quantity,
+    unitprice,
+    totalprice,
+    country,
+    year,
+    month,
+    day,
+    COUNT(DISTINCT invoiceno)::integer as total_orders,
+    COUNT(DISTINCT customerid)::integer as unique_customers
 FROM 
-    sales sls 
-JOIN 
-    product pd ON sls.stockcode = pd.stockcode 
-JOIN 
-    customer c ON c.customerid = sls.customerid 
-JOIN 
-    time t ON t.timeid = sls.timeid 
+    base_data
 GROUP BY 
-    pd.description, pd.stockcode, sls.quantity, sls.unitprice, 
-    sls.totalprice, c.country, t.year, t.month, t.day
+    product_name, stockcode, quantity, unitprice, 
+    totalprice, country, year, month, day
 ORDER BY 
-    t.year, t.month, t.day;
+    year, month, day;
 """
 
+# Load data
 data = load_data(query)
 
 # Sidebar Navigation
@@ -856,7 +886,6 @@ elif selected == "Product Forecasting":
                          f"{product_daily[product_daily['will_sell'] == 1]['predicted_quantity'].mean():,.1f}")
     else:
         st.error("Unable to load forecast data. Please check the file paths and data format.")
-
 
 elif selected == "Sales Forecasting":
     st.title("📊 Sales Forecasting")
