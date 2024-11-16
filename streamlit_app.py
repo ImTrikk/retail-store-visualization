@@ -1,11 +1,12 @@
-from streamlit_option_menu import option_menu
-import streamlit as st
-import pandas as pd
-import matplotlib.pyplot as plt
-import plotly.express as px
-from sqlalchemy import create_engine
-from dotenv import load_dotenv
+from streamlit_option_menu import option_menu # type: ignore
+import streamlit as st # type: ignore
+import pandas as pd # type: ignore
+import matplotlib.pyplot as plt # type: ignore
+import plotly.express as px # type: ignore
+from sqlalchemy import create_engine # type: ignore
+from dotenv import load_dotenv # type: ignore
 import os
+import json
 
 # Load environment variables
 load_dotenv()
@@ -85,15 +86,15 @@ ORDER BY
 
 data = load_data(query)
 
-
 # Sidebar Navigation
 with st.sidebar:
     selected = option_menu("Menu", 
                            ["Home", "Overview", "Sales", "Insights", 
-                            "Sales Forecasting"
+                            "Product Forecasting", "Sales Forecasting", "Customer Segmentation"
                             ], 
                            icons=['house', 'speedometer', 'bar-chart', 
-                                  'lightbulb', 'people', 
+                                  'lightbulb', 'people', 'graph-up-arrow', 
+                                  'people-fill', 'boxes'
                                   ],
                            menu_icon="cast", 
                            default_index=0)
@@ -674,7 +675,525 @@ elif selected == "Insights":
             f"• Top 3 markets: {', '.join(top_3_countries.index)}"
         )
 
-# elif selected == "Sales Forecasting":
-#     st.title("🧑‍🦰Sales Forecasting")
-#     st.markdown("---")
-#     st.write("Insights into customer behavior, segmentation, and demographics.")
+elif selected == "Product Forecasting":
+    st.title("📊 Product Forecasting")
+    st.markdown("---")
+
+    # Load JSON data
+    @st.cache_data
+    def load_forecast_data():
+        try:
+            # Specify the absolute paths
+            base_path = os.path.dirname(os.path.abspath(__file__))
+            daily_path = os.path.join(base_path, 'forecasting', 'products', 'daily_predictions.json')
+            weekly_path = os.path.join(base_path, 'forecasting', 'products', 'weekly_predictions.json')
+            
+            # Load the files
+            with open(daily_path, 'r') as daily_file:
+                daily_data = pd.DataFrame(json.load(daily_file))
+            
+            with open(weekly_path, 'r') as weekly_file:
+                weekly_data = pd.DataFrame(json.load(weekly_file))
+                
+            return daily_data, weekly_data
+            
+        except Exception as e:
+            st.error(f"Error loading forecast data: {str(e)}")
+            return None, None
+
+    # Load the data
+    daily_df, weekly_df = load_forecast_data()
+
+    if daily_df is not None and weekly_df is not None:
+        tab1, tab2, tab3 = st.tabs(["Daily Forecast", "Weekly Forecast", "Product Analysis"])
+        
+        with tab1:
+            st.subheader("📅 Daily Sales Forecast")
+            
+            # Convert date to datetime
+            daily_df['date'] = pd.to_datetime(daily_df['date'])
+            
+            # Date filter
+            min_date = daily_df['date'].min()
+            max_date = daily_df['date'].max()
+            selected_date = st.date_input(
+                "Select Date",
+                value=min_date,
+                min_value=min_date,
+                max_value=max_date
+            )
+            
+            # Filter data for selected date
+            daily_filtered = daily_df[daily_df['date'].dt.date == selected_date]
+            
+            # Summary metrics
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                st.metric("Total Predicted Sales", 
+                         f"{daily_filtered['predicted_quantity'].sum():,.0f}")
+            with col2:
+                st.metric("Products Expected to Sell", 
+                         f"{daily_filtered['will_sell'].sum():,.0f}")
+            with col3:
+                st.metric("Average Units per Product", 
+                         f"{daily_filtered[daily_filtered['will_sell'] == 1]['predicted_quantity'].mean():,.1f}")
+            
+            # Top selling products
+            st.markdown("### 🔝 Top Selling Products")
+            top_products = daily_filtered[daily_filtered['will_sell'] == 1].nlargest(10, 'predicted_quantity')
+            
+            fig = px.bar(
+                top_products,
+                x='description',
+                y='predicted_quantity',
+                title=f'Top 10 Products - {selected_date}',
+                labels={'description': 'Product', 'predicted_quantity': 'Predicted Sales'}
+            )
+            fig.update_layout(xaxis_tickangle=-45)
+            st.plotly_chart(fig, use_container_width=True)
+            
+            # Products table
+            st.markdown("### 📋 Detailed Predictions")
+            st.dataframe(
+                daily_filtered[['description', 'predicted_quantity', 'will_sell']]
+                .sort_values('predicted_quantity', ascending=False),
+                use_container_width=True
+            )
+        
+        with tab2:
+            st.subheader("📅 Weekly Sales Forecast")
+            
+            # Period selector
+            periods = sorted(weekly_df['period'].unique())
+            selected_period = st.selectbox("Select Week", periods)
+            
+            # Filter for selected period
+            weekly_filtered = weekly_df[weekly_df['period'] == selected_period]
+            
+            # Summary metrics
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                st.metric("Total Weekly Sales", 
+                         f"{weekly_filtered['predicted_quantity'].sum():,.0f}")
+            with col2:
+                st.metric("Products Expected to Sell", 
+                         f"{weekly_filtered['will_sell'].sum():,.0f}")
+            with col3:
+                st.metric("Average Units per Product", 
+                         f"{weekly_filtered[weekly_filtered['will_sell'] == 1]['predicted_quantity'].mean():,.1f}")
+            
+            # Weekly trend
+            st.markdown("### 📈 Weekly Sales Trend")
+            weekly_trend = weekly_df.groupby('period')['predicted_quantity'].sum().reset_index()
+            
+            fig_weekly = px.line(
+                weekly_trend,
+                x='period',
+                y='predicted_quantity',
+                title='Weekly Sales Forecast Trend',
+                labels={'period': 'Week', 'predicted_quantity': 'Predicted Sales'}
+            )
+            st.plotly_chart(fig_weekly, use_container_width=True)
+            
+            # Top products for selected week
+            st.markdown("### 🏆 Top Products for Selected Week")
+            weekly_top = weekly_filtered[weekly_filtered['will_sell'] == 1].nlargest(10, 'predicted_quantity')
+            
+            fig_top = px.bar(
+                weekly_top,
+                x='description',
+                y='predicted_quantity',
+                title=f'Top 10 Products - Week {selected_period}',
+                labels={'description': 'Product', 'predicted_quantity': 'Predicted Sales'}
+            )
+            fig_top.update_layout(xaxis_tickangle=-45)
+            st.plotly_chart(fig_top, use_container_width=True)
+        
+        with tab3:
+            st.subheader("🔍 Product Analysis")
+            
+            # Product selector
+            products = sorted(daily_df['description'].unique())
+            selected_product = st.selectbox("Select Product", products)
+            
+            # Filter data for selected product
+            product_daily = daily_df[daily_df['description'] == selected_product]
+            product_weekly = weekly_df[weekly_df['description'] == selected_product]
+            
+            # Product insights
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                st.markdown("### 📊 Daily Forecast")
+                daily_trend = px.line(
+                    product_daily,
+                    x='date',
+                    y='predicted_quantity',
+                    title=f'Daily Sales Forecast - {selected_product}'
+                )
+                st.plotly_chart(daily_trend, use_container_width=True)
+            
+            with col2:
+                st.markdown("### 📈 Weekly Forecast")
+                weekly_trend = px.line(
+                    product_weekly,
+                    x='period',
+                    y='predicted_quantity',
+                    title=f'Weekly Sales Forecast - {selected_product}'
+                )
+                st.plotly_chart(weekly_trend, use_container_width=True)
+            
+            # Summary metrics
+            metric_col1, metric_col2, metric_col3 = st.columns(3)
+            with metric_col1:
+                st.metric("Total Predicted Sales", 
+                         f"{product_daily['predicted_quantity'].sum():,.0f}")
+            with metric_col2:
+                st.metric("Days with Sales", 
+                         f"{product_daily['will_sell'].sum():,}")
+            with metric_col3:
+                st.metric("Average Daily Sales", 
+                         f"{product_daily[product_daily['will_sell'] == 1]['predicted_quantity'].mean():,.1f}")
+    else:
+        st.error("Unable to load forecast data. Please check the file paths and data format.")
+
+
+elif selected == "Sales Forecasting":
+    st.title("📊 Sales Forecasting")
+    st.markdown("---")
+    
+    # Load forecast data
+    @st.cache_data
+    def load_sales_forecasts():
+        try:
+            base_path = os.path.dirname(os.path.abspath(__file__))
+            
+            # Load 7-day forecast
+            with open(os.path.join(base_path, 'forecasting/sales/forecast_7days.json'), 'r') as f:
+                forecast_7d = json.load(f)
+            
+            # Load 30-day forecast
+            with open(os.path.join(base_path, 'forecasting/sales/forecast_30days.json'), 'r') as f:
+                forecast_30d = json.load(f)
+                
+            return forecast_7d, forecast_30d
+        except Exception as e:
+            st.error(f"Error loading forecast data: {str(e)}")
+            return None, None
+
+    forecast_7d, forecast_30d = load_sales_forecasts()
+
+    if forecast_7d and forecast_30d:
+        # Create tabs for different forecast views
+        tab1, tab2, tab3 = st.tabs(["Overview", "7-Day Forecast", "30-Day Forecast"])
+        
+        with tab1:
+            st.subheader("📈 Sales Forecast Overview")
+            
+            # Compare 7-day vs 30-day metrics
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                st.info("### 7-Day Forecast")
+                st.metric("Total Predicted Sales", 
+                         f"${forecast_7d['metadata']['total_predicted_sales']:,.2f}")
+                st.metric("Average Daily Sales", 
+                         f"${forecast_7d['metadata']['average_daily_sales']:,.2f}")
+                st.metric("Period", 
+                         f"{forecast_7d['metadata']['start_date']} to {forecast_7d['metadata']['end_date']}")
+            
+            with col2:
+                st.info("### 30-Day Forecast")
+                st.metric("Total Predicted Sales", 
+                         f"${forecast_30d['metadata']['total_predicted_sales']:,.2f}")
+                st.metric("Average Daily Sales", 
+                         f"${forecast_30d['metadata']['average_daily_sales']:,.2f}")
+                st.metric("Period", 
+                         f"{forecast_30d['metadata']['start_date']} to {forecast_30d['metadata']['end_date']}")
+        
+        with tab2:
+            st.subheader("📅 7-Day Sales Forecast")
+            
+            # Convert predictions to DataFrame
+            df_7d = pd.DataFrame(forecast_7d['daily_predictions'])
+            df_7d['date'] = pd.to_datetime(df_7d['date'])
+            
+            # Daily predictions chart
+            fig_7d = px.line(df_7d, 
+                           x='date', 
+                           y='predicted_sales',
+                           title='7-Day Sales Forecast',
+                           labels={'predicted_sales': 'Predicted Sales ($)', 
+                                 'date': 'Date'})
+            
+            # Add weekend highlighting
+            for idx, row in df_7d.iterrows():
+                if row['is_weekend']:
+                    fig_7d.add_vrect(
+                        x0=row['date'],
+                        x1=pd.to_datetime(row['date']) + pd.Timedelta(days=1),
+                        fillcolor="rgba(128, 128, 128, 0.1)",
+                        layer="below",
+                        line_width=0,
+                        annotation_text="Weekend",
+                        annotation_position="top left"
+                    )
+            
+            st.plotly_chart(fig_7d, use_container_width=True)
+            
+            # Daily breakdown
+            st.markdown("### Daily Breakdown")
+            df_7d['date'] = df_7d['date'].dt.strftime('%Y-%m-%d')
+            df_7d['predicted_sales'] = df_7d['predicted_sales'].apply(lambda x: f"${x:,.2f}")
+            st.dataframe(
+                df_7d.rename(columns={
+                    'date': 'Date',
+                    'predicted_sales': 'Predicted Sales',
+                    'is_weekend': 'Weekend'
+                }),
+                use_container_width=True
+            )
+        
+        with tab3:
+            st.subheader("📅 30-Day Sales Forecast")
+            
+            # Convert predictions to DataFrame
+            df_30d = pd.DataFrame(forecast_30d['daily_predictions'])
+            df_30d['date'] = pd.to_datetime(df_30d['date'])
+            
+            # Add weekly aggregation option
+            view_option = st.radio("View", ["Daily", "Weekly"], horizontal=True)
+            
+            if view_option == "Daily":
+                fig_30d = px.line(df_30d, 
+                                x='date', 
+                                y='predicted_sales',
+                                title='30-Day Sales Forecast',
+                                labels={'predicted_sales': 'Predicted Sales ($)', 
+                                      'date': 'Date'})
+                
+                # Add weekend highlighting
+                for idx, row in df_30d.iterrows():
+                    if row['is_weekend']:
+                        fig_30d.add_vrect(
+                            x0=row['date'],
+                            x1=pd.to_datetime(row['date']) + pd.Timedelta(days=1),
+                            fillcolor="rgba(128, 128, 128, 0.1)",
+                            layer="below",
+                            line_width=0
+                        )
+            else:
+                # Weekly aggregation
+                df_30d['week'] = df_30d['date'].dt.strftime('%Y-%W')
+                weekly_data = df_30d.groupby('week')['predicted_sales'].agg(['sum', 'mean']).reset_index()
+                
+                fig_30d = px.bar(weekly_data,
+                                x='week',
+                                y='sum',
+                                title='Weekly Sales Forecast',
+                                labels={'sum': 'Total Weekly Sales ($)',
+                                       'week': 'Week'})
+            
+            st.plotly_chart(fig_30d, use_container_width=True)
+            
+            # Summary statistics
+            col1, col2, col3 = st.columns(3)
+            
+            with col1:
+                weekend_avg = df_30d[df_30d['is_weekend']]['predicted_sales'].mean()
+                st.metric("Weekend Average", f"${weekend_avg:,.2f}")
+            
+            with col2:
+                weekday_avg = df_30d[~df_30d['is_weekend']]['predicted_sales'].mean()
+                st.metric("Weekday Average", f"${weekday_avg:,.2f}")
+            
+            with col3:
+                peak_day = df_30d.loc[df_30d['predicted_sales'].idxmax()]
+                st.metric("Peak Day", 
+                         f"${peak_day['predicted_sales']:,.2f}",
+                         f"{peak_day['date'].strftime('%Y-%m-%d')}")
+            
+            # Daily breakdown table
+            st.markdown("### Daily Breakdown")
+            df_30d['date'] = df_30d['date'].dt.strftime('%Y-%m-%d')
+            df_30d['predicted_sales'] = df_30d['predicted_sales'].apply(lambda x: f"${x:,.2f}")
+            st.dataframe(
+                df_30d.rename(columns={
+                    'date': 'Date',
+                    'predicted_sales': 'Predicted Sales',
+                    'is_weekend': 'Weekend'
+                }),
+                use_container_width=True
+            )
+    else:
+        st.error("Unable to load forecast data. Please check the file paths and data format.")
+
+elif selected == "Customer Segmentation":
+    st.title("👥 Customer Segmentation Analysis")
+    st.markdown("---")
+
+    @st.cache_data
+    def load_customer_data():
+        try:
+            base_path = os.path.dirname(os.path.abspath(__file__))
+            with open(os.path.join(base_path, 'forecasting/customer/scatter_plot_data.json'), 'r') as f:
+                customer_data = json.load(f)
+            return pd.DataFrame(customer_data['data'])
+        except Exception as e:
+            st.error(f"Error loading customer data: {str(e)}")
+            return None
+
+    customer_df = load_customer_data()
+
+    if customer_df is not None:
+        # Create tabs for different views
+        tab1, tab2, tab3 = st.tabs(["Overview", "Customer Analysis", "Segment Details"])
+
+        with tab1:
+            st.subheader("📊 Customer Segments Overview")
+
+            # Summary metrics
+            total_customers = len(customer_df)
+            avg_sales = customer_df['total_sales'].mean()
+            avg_frequency = customer_df['order_frequency'].mean()
+
+            col1, col2, col3 = st.columns(3)
+            
+            with col1:
+                st.metric("Total Customers", f"{total_customers:,}")
+            with col2:
+                st.metric("Average Customer Value", f"${avg_sales:,.2f}")
+            with col3:
+                st.metric("Average Order Frequency", f"{avg_frequency:.1f}")
+
+            # Segment distribution
+            segment_dist = customer_df['Cluster Label'].value_counts()
+            fig_dist = px.pie(
+                values=segment_dist.values,
+                names=segment_dist.index,
+                title='Customer Segment Distribution',
+                color_discrete_sequence=px.colors.qualitative.Set3
+            )
+            st.plotly_chart(fig_dist, use_container_width=True)
+
+        with tab2:
+            st.subheader("🔍 Customer Behavior Analysis")
+
+            # Scatter plot
+            fig_scatter = px.scatter(
+                customer_df,
+                x='total_sales',
+                y='order_frequency',
+                color='Cluster Label',
+                title='Customer Segments by Sales and Order Frequency',
+                labels={
+                    'total_sales': 'Total Sales ($)',
+                    'order_frequency': 'Order Frequency',
+                    'Cluster Label': 'Customer Segment'
+                },
+                color_discrete_sequence=px.colors.qualitative.Set3
+            )
+            st.plotly_chart(fig_scatter, use_container_width=True)
+
+            # Segment comparison
+            segment_metrics = customer_df.groupby('Cluster Label').agg({
+                'total_sales': ['mean', 'count'],
+                'order_frequency': 'mean'
+            }).round(2)
+
+            segment_metrics.columns = ['Avg Sales', 'Count', 'Avg Frequency']
+            segment_metrics = segment_metrics.reset_index()
+
+            col1, col2 = st.columns(2)
+
+            with col1:
+                # Average sales by segment
+                fig_avg_sales = px.bar(
+                    segment_metrics,
+                    x='Cluster Label',
+                    y='Avg Sales',
+                    title='Average Sales by Segment',
+                    color='Cluster Label',
+                    color_discrete_sequence=px.colors.qualitative.Set3
+                )
+                st.plotly_chart(fig_avg_sales, use_container_width=True)
+
+            with col2:
+                # Average frequency by segment
+                fig_avg_freq = px.bar(
+                    segment_metrics,
+                    x='Cluster Label',
+                    y='Avg Frequency',
+                    title='Average Order Frequency by Segment',
+                    color='Cluster Label',
+                    color_discrete_sequence=px.colors.qualitative.Set3
+                )
+                st.plotly_chart(fig_avg_freq, use_container_width=True)
+
+        with tab3:
+            st.subheader("📑 Detailed Segment Analysis")
+
+            # Segment selector
+            selected_segment = st.selectbox(
+                "Select Customer Segment",
+                sorted(customer_df['Cluster Label'].unique())
+            )
+
+            # Filter data for selected segment
+            segment_data = customer_df[customer_df['Cluster Label'] == selected_segment]
+
+            # Segment metrics
+            col1, col2, col3 = st.columns(3)
+            
+            with col1:
+                st.metric(
+                    "Customers in Segment", 
+                    f"{len(segment_data):,}"
+                )
+            with col2:
+                st.metric(
+                    "Average Sales", 
+                    f"${segment_data['total_sales'].mean():,.2f}"
+                )
+            with col3:
+                st.metric(
+                    "Average Order Frequency",
+                    f"{segment_data['order_frequency'].mean():.1f}"
+                )
+
+            # Distribution plots
+            col1, col2 = st.columns(2)
+
+            with col1:
+                # Sales distribution
+                fig_sales_dist = px.histogram(
+                    segment_data,
+                    x='total_sales',
+                    title=f'Sales Distribution - {selected_segment}',
+                    labels={'total_sales': 'Total Sales ($)'}
+                )
+                st.plotly_chart(fig_sales_dist, use_container_width=True)
+
+            with col2:
+                # Frequency distribution
+                fig_freq_dist = px.histogram(
+                    segment_data,
+                    x='order_frequency',
+                    title=f'Order Frequency Distribution - {selected_segment}',
+                    labels={'order_frequency': 'Order Frequency'}
+                )
+                st.plotly_chart(fig_freq_dist, use_container_width=True)
+
+            # Customer table
+            st.markdown("### Customer Details")
+            st.dataframe(
+                segment_data.sort_values('total_sales', ascending=False)
+                .head(10)
+                .style.format({
+                    'total_sales': '${:,.2f}',
+                    'order_frequency': '{:,.0f}'
+                }),
+                use_container_width=True
+            )
+    else:
+        st.error("Unable to load customer segmentation data. Please check the file paths and data format.")

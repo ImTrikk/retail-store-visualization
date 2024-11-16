@@ -1,0 +1,18 @@
+{
+    "data": [
+        {
+            "label": "Low-Value Customers",
+            "value": 3882
+        },
+        {
+            "label": "Moderate-Value Customers",
+            "value": 305
+        },
+        {
+            "label": "High-Value Customers",
+            "value": 4
+        }
+    ],
+    "chart_type": "pie",
+    "title": "Customer Segmentation Proportions"
+}

@@ -1,0 +1,10 @@
+{
+    "data": {
+        "Low-Value Customers": 3882,
+        "Moderate-Value Customers": 305,
+        "High-Value Customers": 4
+    },
+    "chart_type": "bar",
+    "x_axis": "Customer Segments",
+    "y_axis": "Number of Customers"
+}
