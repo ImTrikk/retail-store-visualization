@@ -16,7 +16,7 @@ st.set_page_config(page_title="Retail Store Visualization", page_icon="🏪", la
 st.markdown('<style>div.block-container{padding-top:1rem;}</style>', unsafe_allow_html=True)
 
 def create_connection():
-    try:
+    try:    
         # For Render, use the external DATABASE_URL
         DATABASE_URL = os.getenv('DATABASE_URL')
         
@@ -38,24 +38,15 @@ def create_connection():
         st.error(f"Error creating database connection: {e}")
         return None
 
+@st.cache_data(ttl=600)  # Cache for 10 minutes
 def load_data(query):
     engine = create_connection()
     if engine:
         try:
-            # Add debugging information
-            st.write("Executing query...")
+            # Remove debug messages
             data = pd.read_sql(query, engine)
-            st.write("Query executed. Columns in dataset:", data.columns.tolist())
-            st.write("Number of rows:", len(data))
-            
-            if data.empty:
-                st.error("No data returned from the query")
-                return pd.DataFrame()
-            
-            # Create date column
             data['date'] = pd.to_datetime(data[['year', 'month', 'day']])
             return data
-            
         except Exception as e:
             st.error(f"Error reading from database: {e}")
             return pd.DataFrame()
@@ -98,8 +89,8 @@ data = load_data(query)
 # Sidebar Navigation
 with st.sidebar:
     selected = option_menu("Menu", 
-                           ["Home", "Dashboard", "Sales", "Insights", 
-                            "Customer Analysis"
+                           ["Home", "Overview", "Sales", "Insights", 
+                            "Sales Forecasting"
                             ], 
                            icons=['house', 'speedometer', 'bar-chart', 
                                   'lightbulb', 'people', 
@@ -210,8 +201,8 @@ if selected == "Home":
         hide_index=True
     )
 
-elif selected == "Dashboard":
-    st.title("📈 Dashboard")
+elif selected == "Overview":
+    st.title("📈 Overview ")
     st.markdown("---")
 
     # Date Filter
@@ -559,12 +550,131 @@ elif selected == "Sales":
             use_container_width=True
         )
 
-# elif selected == "Insights":
-#     st.title("📑Insights")
-#     st.markdown("---")
-#     st.write("Explore insights into customer behavior and product performance.")
+elif selected == "Insights":
+    st.title("📑 Insights")
+    st.markdown("---")
+    
+    # Calculate key metrics for insights
+    total_revenue = data['totalprice'].sum()
+    total_orders = data['total_orders'].sum()
+    unique_customers = data['unique_customers'].sum()
+    avg_order_value = total_revenue / total_orders if total_orders > 0 else 0
 
-# elif selected == "Customer Analysis":
-#     st.title("🧑‍🦰Customer Analysis")
+    # High-level insights in cards
+    st.markdown("### 🎯 Key Performance Indicators")
+    kpi_col1, kpi_col2, kpi_col3, kpi_col4 = st.columns(4)
+    
+    with kpi_col1:
+        st.metric("Total Revenue", f"${total_revenue:,.2f}")
+    
+    with kpi_col2:
+        st.metric("Total Orders", f"{total_orders:,}")
+    
+    with kpi_col3:
+        st.metric("Unique Customers", f"{unique_customers:,}")
+        
+    with kpi_col4:
+        st.metric("Avg Order Value", f"${avg_order_value:,.2f}")
+    
+    # Detailed insights
+    st.markdown("### 🔍 Key Insights")
+    
+    insight_col1, insight_col2, insight_col3 = st.columns(3)
+    
+    with insight_col1:
+        # Top market analysis
+        top_country = data.groupby('country')['totalprice'].sum().nlargest(1)
+        st.markdown("**🌍 Top Market**")
+        st.info(
+            f"**{top_country.index[0]}**\n\n"
+            f"Revenue: ${top_country.values[0]:,.2f}"
+        )
+    
+    with insight_col2:
+        # Best selling product
+        top_product = data.groupby('product_name')['totalprice'].sum().nlargest(1)
+        st.markdown("**🏆 Best Selling Product**")
+        st.info(
+            f"**{top_product.index[0]}**\n\n"
+            f"Revenue: ${top_product.values[0]:,.2f}"
+        )
+    
+    with insight_col3:
+        # Customer engagement
+        avg_customer_value = total_revenue / unique_customers if unique_customers > 0 else 0
+        st.markdown("**👥 Customer Engagement**")
+        st.info(
+            f"**Average Customer Value**\n\n"
+            f"${avg_customer_value:,.2f} per customer"
+        )
+    
+    # Trend Analysis
+    st.markdown("### 📈 Trend Analysis")
+    trend_col1, trend_col2 = st.columns(2)
+    
+    with trend_col1:
+        # Monthly sales trend
+        monthly_sales = data.groupby(['year', 'month'])['totalprice'].sum().reset_index()
+        monthly_sales['date'] = pd.to_datetime(monthly_sales[['year', 'month']].assign(day=1))
+        
+        sales_trend_fig = px.line(
+            monthly_sales,
+            x='date',
+            y='totalprice',
+            title='Monthly Sales Trend'
+        )
+        sales_trend_fig.update_layout(
+            xaxis_title="Month",
+            yaxis_title="Sales ($)",
+            showlegend=False
+        )
+        st.plotly_chart(sales_trend_fig, use_container_width=True)
+    
+    with trend_col2:
+        # Top 5 countries
+        top_countries = data.groupby('country')['totalprice'].sum().nlargest(5).reset_index()
+        
+        country_fig = px.bar(
+            top_countries,
+            x='country',
+            y='totalprice',
+            title='Top 5 Countries by Revenue'
+        )
+        country_fig.update_layout(
+            xaxis_title="Country",
+            yaxis_title="Revenue ($)",
+            showlegend=False
+        )
+        st.plotly_chart(country_fig, use_container_width=True)
+    
+    # Additional insights
+    st.markdown("### 💡 Additional Insights")
+    
+    # Calculate and display product diversity
+    total_products = data['product_name'].nunique()
+    avg_products_per_order = data['quantity'].mean()
+    
+    add_col1, add_col2 = st.columns(2)
+    
+    with add_col1:
+        st.info(
+            f"**Product Diversity**\n\n"
+            f"• Total unique products: {total_products:,}\n"
+            f"• Average items per order: {avg_products_per_order:.1f}"
+        )
+    
+    with add_col2:
+        # Calculate customer geographic distribution
+        customer_countries = data['country'].nunique()
+        top_3_countries = data.groupby('country')['totalprice'].sum().nlargest(3)
+        
+        st.info(
+            f"**Geographic Reach**\n\n"
+            f"• Active in {customer_countries} countries\n"
+            f"• Top 3 markets: {', '.join(top_3_countries.index)}"
+        )
+
+# elif selected == "Sales Forecasting":
+#     st.title("🧑‍🦰Sales Forecasting")
 #     st.markdown("---")
 #     st.write("Insights into customer behavior, segmentation, and demographics.")
